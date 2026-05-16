@@ -1,0 +1,6 @@
+downloads/
+firmware/lib/
+firmware/settings.toml
+.DS_Store
+__pycache__/
+.venv/
