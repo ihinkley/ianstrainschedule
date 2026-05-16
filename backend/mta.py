@@ -6,9 +6,8 @@ from typing import Any
 import httpx
 from google.transit import gtfs_realtime_pb2
 
-from stations import STATION_STOP_IDS, direction_for_stop_id
+from transit_config import FEEDS, direction_for_stop_id, display_name_for_station, stop_ids_for_station
 
-MTA_456_FEED_URL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs"
 CACHE_SECONDS = 30
 
 
@@ -27,7 +26,7 @@ async def fetch_mta_feed() -> gtfs_realtime_pb2.FeedMessage:
         return _cache.feed
 
     async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.get(MTA_456_FEED_URL)
+        response = await client.get(FEEDS["numbered"]["url"])
         response.raise_for_status()
 
     feed = gtfs_realtime_pb2.FeedMessage()
@@ -84,7 +83,7 @@ def parse_board_arrivals(feed: gtfs_realtime_pb2.FeedMessage, config: dict[str, 
 
     stations = []
     for station_name in selected_stations:
-        stop_ids = STATION_STOP_IDS.get(station_name, [])
+        stop_ids = stop_ids_for_station(station_name, selected_routes)
         arrivals = []
         for stop_id in stop_ids:
             arrivals.extend(arrivals_by_stop.get(stop_id, []))
@@ -92,7 +91,7 @@ def parse_board_arrivals(feed: gtfs_realtime_pb2.FeedMessage, config: dict[str, 
         arrivals.sort(key=lambda item: (item["minutes"], item["route"]))
         stations.append(
             {
-                "name": station_name.upper(),
+                "name": display_name_for_station(station_name),
                 "arrivals": arrivals[:3],
             }
         )

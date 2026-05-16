@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from mta import fetch_mta_feed, parse_board_arrivals
+from transit_config import SUPPORTED_STATIONS, SUPPORTED_TRAINS
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
 
@@ -50,6 +51,21 @@ def health() -> dict[str, str]:
 @app.get("/api/config")
 def get_config() -> BoardConfig:
     return load_config()
+
+
+@app.get("/api/options")
+def get_options() -> dict:
+    return {
+        "trains": sorted(SUPPORTED_TRAINS.keys()),
+        "stations": [
+            {
+                "name": name,
+                "display_name": station["display_name"],
+                "platforms": station["platforms"],
+            }
+            for name, station in SUPPORTED_STATIONS.items()
+        ],
+    }
 
 
 @app.post("/api/config")

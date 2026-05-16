@@ -3,3 +3,5 @@
 
 CIRCUITPY_WIFI_SSID = "your-wifi-name"
 CIRCUITPY_WIFI_PASSWORD = "your-wifi-password"
+BOARD_API_URL = "https://ianstrainschedule.onrender.com/api/board"
+BOARD_POLL_SECONDS = "10"

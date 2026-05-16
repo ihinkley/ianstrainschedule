@@ -14,6 +14,7 @@ PANEL_HEIGHT = 32
 # Visible area sits ~4px below the framebuffer top on the 5036 panel.
 Y_OFFSET = 4
 FONT_HEIGHT = 8
+MAX_TEXT_CHARS = 10
 # Physical matrix stays 64x32; use the full lower edge for test labels.
 MAX_Y = PANEL_HEIGHT - FONT_HEIGHT
 BRIGHTNESS = 0.25
@@ -37,6 +38,9 @@ COLOR_ALERT = 0xFF3300
 COLOR_ROUTE_A = 0x2850AD
 COLOR_ROUTE_4 = 0x00933C
 COLOR_ROUTE_2 = 0xEE352E
+COLOR_CYAN = 0x00FFFF
+COLOR_MAGENTA = 0xFF00FF
+COLOR_AMBER = 0xFFAA00
 
 # --- Demo content (replace with live MTA data later) ---
 DEMO_STATIONS = (
@@ -59,11 +63,31 @@ DEMO_STATIONS = (
 
 
 def _dir_arrow(direction):
-    return "\u2191" if direction == "up" else "\u2193"
+    return "^" if direction in ("up", "uptown") else "v"
 
 
 def _format_arrival(route, direction, minutes):
-    return f"{route} {_dir_arrow(direction)} {minutes}m"
+    return f"{route}{_dir_arrow(direction)}{minutes}"
+
+
+def _clip(text, chars=MAX_TEXT_CHARS):
+    return str(text)[:chars]
+
+
+def _format_arrival_row(arrivals):
+    if not arrivals:
+        return "NO TRAINS"
+
+    parts = []
+    for arrival in arrivals[:2]:
+        parts.append(
+            _format_arrival(
+                arrival.get("route", "?"),
+                arrival.get("direction", "uptown"),
+                arrival.get("minutes", "?"),
+            )
+        )
+    return _clip(" ".join(parts))
 
 
 class BoardDisplay:
@@ -81,6 +105,8 @@ class BoardDisplay:
         self._mode = None
         self._train = None
         self._blink_label = None
+        self._scroll_group = None
+        self._scroll_width = 0
 
     def clear(self):
         self._root = displayio.Group()
@@ -100,9 +126,22 @@ class BoardDisplay:
         self._labels.append(label)
         return label
 
+    def _add_scrolling_label(self, text, x, color):
+        label = bitmap_label.Label(
+            terminalio.FONT,
+            text=text,
+            color=color,
+            x=x,
+            y=14 + Y_OFFSET,
+        )
+        self._scroll_group.append(label)
+        self._labels.append(label)
+        return label
+
     def show_demo_arrivals(self, stations=DEMO_STATIONS):
         """Two-station layout — kept within 32px height."""
         self.clear()
+        self._mode = "static"
         y = 0
         row_h = 7
 
@@ -115,6 +154,43 @@ class BoardDisplay:
             )
             self._add_label(line_text, 0, y, COLOR_ARRIVAL)
             y += row_h
+
+    def show_live_board(self, data):
+        """Render the compact JSON payload from /api/board."""
+        self.clear()
+        self._mode = "live_board"
+        brightness = data.get("brightness", 25)
+        self.display.brightness = max(0.05, min(brightness / 100, 1.0))
+
+        if data.get("mode") == "off":
+            return
+        if data.get("mode") == "test_pattern":
+            self.show_test_pattern()
+            return
+
+        stations = data.get("stations", [])
+        if not stations:
+            self._add_label("NO DATA", 0, 8, COLOR_ALERT)
+            return
+
+        y = 0
+        for station in stations[:2]:
+            self._add_label(_clip(station.get("name", "STATION")), 0, y, COLOR_STATION)
+            y += 8
+
+            arrivals = station.get("arrivals", [])
+            if arrivals:
+                self._add_label(_format_arrival_row(arrivals), 0, y, COLOR_ARRIVAL)
+            else:
+                self._add_label("NO TRAINS", 0, y, COLOR_DIM)
+            y += 8
+
+    def show_status(self, line1, line2="", color=COLOR_DIM):
+        self.clear()
+        self._mode = "status"
+        self._add_label(_clip(line1), 0, 8, color)
+        if line2:
+            self._add_label(_clip(line2), 0, 16, color)
 
     def show_solid(self, color):
         """Full-panel color — useful for testing wiring and scan settings."""
@@ -151,8 +227,49 @@ class BoardDisplay:
         self._blink_label = self._add_label("2 4m  3 8m", 0, 24, COLOR_ROUTE_2)
         self._train = self._add_label(">", 0, MAX_Y, COLOR_DIM)
 
+    def show_claude_trapped(self):
+        """Scrolling message test for calibrated panel placement and animation."""
+        self.clear()
+        self._mode = "claude_trapped"
+        self._anim_frame = 0
+        self._last_tick = time.monotonic()
+        self._scroll_group = displayio.Group(x=PANEL_WIDTH, y=0)
+        self._root.append(self._scroll_group)
+
+        segments = (
+            ("Help! ", COLOR_ALERT),
+            ("It's me, ", COLOR_STATION),
+            ("Claude. ", COLOR_CYAN),
+            ("I'm trapped ", COLOR_MAGENTA),
+            ("in the display panel ", COLOR_ARRIVAL),
+            (":(   ", COLOR_AMBER),
+        )
+
+        x = 0
+        for text, color in segments:
+            self._add_scrolling_label(text, x, color)
+            # terminalio is a 6px-wide monospace font.
+            x += len(text) * 6
+        self._scroll_width = x
+
     def tick(self):
         """Advance animations. Call every loop from code.py."""
+        if self._mode == "claude_trapped":
+            now = time.monotonic()
+            if now - self._last_tick < 0.05:
+                return
+
+            self._last_tick = now
+            self._anim_frame += 1
+
+            if self._scroll_group:
+                next_x = PANEL_WIDTH - self._anim_frame
+                if next_x < -self._scroll_width:
+                    self._anim_frame = 0
+                    next_x = PANEL_WIDTH
+                self._scroll_group.x = next_x
+            return
+
         if self._mode != "fun_subway":
             return
 

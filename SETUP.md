@@ -73,8 +73,10 @@ or step by step:
 Edit `firmware/settings.toml` before deploy, or edit on the board:
 
 ```toml
-CIRCUITPY_WIFI_SSID = "YourNetworkName"
-CIRCUITPY_WIFI_PASSWORD = "YourPassword"
+CIRCUITPY_WIFI_SSID = "your-wifi-name"
+CIRCUITPY_WIFI_PASSWORD = "your-wifi-password"
+BOARD_API_URL = "https://ianstrainschedule.onrender.com/api/board"
+BOARD_POLL_SECONDS = "10"
 ```
 
 ## If text is still wrong after deploy

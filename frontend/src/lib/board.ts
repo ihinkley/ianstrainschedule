@@ -36,12 +36,13 @@ export const DEFAULT_CONFIG: BoardConfig = {
 };
 
 export const ALL_TRAINS = [
-  "1","2","3","4","5","6","7","A","C","E","B","D","F","M","G","J","Z","L","N","Q","R","W",
+  "1","2","3","4","5","6","7","S",
 ];
 
 export const STATIONS = [
   "Fulton St",
   "Wall St",
+  "Park Place",
   "Brooklyn Bridge-City Hall",
   "14 St-Union Sq",
   "Grand Central-42 St",
@@ -55,6 +56,7 @@ export function trainColorVar(route: string): string {
   if (["1","2","3"].includes(route)) return "var(--mta-red)";
   if (["4","5","6"].includes(route)) return "var(--mta-green)";
   if (route === "7") return "var(--mta-purple)";
+  if (route === "S") return "var(--mta-gray)";
   if (["A","C","E"].includes(route)) return "var(--mta-blue)";
   if (["B","D","F","M"].includes(route)) return "var(--mta-orange)";
   if (route === "G") return "var(--mta-lime)";
