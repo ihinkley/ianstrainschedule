@@ -36,7 +36,7 @@ export const DEFAULT_CONFIG: BoardConfig = {
 };
 
 export const ALL_TRAINS = [
-  "1","2","3","4","5","6","7","S",
+  "1","2","3","4","5","6","7","A","C","E","S",
 ];
 
 export const STATIONS = [

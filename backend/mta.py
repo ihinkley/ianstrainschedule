@@ -6,7 +6,13 @@ from typing import Any
 import httpx
 from google.transit import gtfs_realtime_pb2
 
-from transit_config import FEEDS, direction_for_stop_id, display_name_for_station, stop_ids_for_station
+from transit_config import (
+    FEEDS,
+    direction_for_stop_id,
+    feed_keys_for_routes,
+    display_name_for_station,
+    stop_ids_for_station,
+)
 
 CACHE_SECONDS = 30
 
@@ -17,26 +23,35 @@ class FeedCache:
     feed: gtfs_realtime_pb2.FeedMessage | None = None
 
 
-_cache = FeedCache()
+_caches: dict[str, FeedCache] = {}
 
 
-async def fetch_mta_feed() -> gtfs_realtime_pb2.FeedMessage:
+async def fetch_mta_feed(feed_key: str) -> gtfs_realtime_pb2.FeedMessage:
     now = time.time()
-    if _cache.feed is not None and now - _cache.fetched_at < CACHE_SECONDS:
-        return _cache.feed
+    cache = _caches.setdefault(feed_key, FeedCache())
+    if cache.feed is not None and now - cache.fetched_at < CACHE_SECONDS:
+        return cache.feed
 
     async with httpx.AsyncClient(timeout=15) as client:
-        response = await client.get(FEEDS["numbered"]["url"])
+        response = await client.get(FEEDS[feed_key]["url"])
         response.raise_for_status()
 
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.ParseFromString(response.content)
-    _cache.feed = feed
-    _cache.fetched_at = now
+    cache.feed = feed
+    cache.fetched_at = now
     return feed
 
 
-def parse_board_arrivals(feed: gtfs_realtime_pb2.FeedMessage, config: dict[str, Any]) -> dict[str, Any]:
+async def fetch_mta_feeds(selected_routes: set[str]) -> list[gtfs_realtime_pb2.FeedMessage]:
+    feed_keys = feed_keys_for_routes(selected_routes)
+    feeds = []
+    for feed_key in feed_keys:
+        feeds.append(await fetch_mta_feed(feed_key))
+    return feeds
+
+
+def parse_board_arrivals(feeds: list[gtfs_realtime_pb2.FeedMessage], config: dict[str, Any]) -> dict[str, Any]:
     now = int(time.time())
     selected_routes = set(config.get("trains") or ["4", "5", "6"])
     selected_stations = (config.get("stations") or ["Fulton St", "Wall St"])[:4]
@@ -44,42 +59,43 @@ def parse_board_arrivals(feed: gtfs_realtime_pb2.FeedMessage, config: dict[str, 
 
     arrivals_by_stop: dict[str, list[dict[str, Any]]] = {}
 
-    for entity in feed.entity:
-        if not entity.HasField("trip_update"):
-            continue
-
-        trip_update = entity.trip_update
-        route = trip_update.trip.route_id
-        if route not in selected_routes:
-            continue
-
-        for stop_update in trip_update.stop_time_update:
-            stop_id = stop_update.stop_id
-            if not stop_id:
+    for feed in feeds:
+        for entity in feed.entity:
+            if not entity.HasField("trip_update"):
                 continue
 
-            timestamp = 0
-            if stop_update.HasField("arrival") and stop_update.arrival.time:
-                timestamp = stop_update.arrival.time
-            elif stop_update.HasField("departure") and stop_update.departure.time:
-                timestamp = stop_update.departure.time
-
-            if timestamp <= now:
+            trip_update = entity.trip_update
+            route = trip_update.trip.route_id
+            if route not in selected_routes:
                 continue
 
-            direction = direction_for_stop_id(stop_id)
-            if selected_direction == "northbound" and direction != "uptown":
-                continue
-            if selected_direction == "southbound" and direction != "downtown":
-                continue
+            for stop_update in trip_update.stop_time_update:
+                stop_id = stop_update.stop_id
+                if not stop_id:
+                    continue
 
-            arrivals_by_stop.setdefault(stop_id, []).append(
-                {
-                    "route": route,
-                    "direction": direction,
-                    "minutes": max(0, math.ceil((timestamp - now) / 60)),
-                }
-            )
+                timestamp = 0
+                if stop_update.HasField("arrival") and stop_update.arrival.time:
+                    timestamp = stop_update.arrival.time
+                elif stop_update.HasField("departure") and stop_update.departure.time:
+                    timestamp = stop_update.departure.time
+
+                if timestamp <= now:
+                    continue
+
+                direction = direction_for_stop_id(stop_id)
+                if selected_direction == "northbound" and direction != "uptown":
+                    continue
+                if selected_direction == "southbound" and direction != "downtown":
+                    continue
+
+                arrivals_by_stop.setdefault(stop_id, []).append(
+                    {
+                        "route": route,
+                        "direction": direction,
+                        "minutes": max(0, math.ceil((timestamp - now) / 60)),
+                    }
+                )
 
     stations = []
     for station_name in selected_stations:
@@ -92,7 +108,7 @@ def parse_board_arrivals(feed: gtfs_realtime_pb2.FeedMessage, config: dict[str, 
         stations.append(
             {
                 "name": display_name_for_station(station_name),
-                "arrivals": arrivals[:3],
+                "arrivals": arrivals[:5],
             }
         )
 

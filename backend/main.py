@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from mta import fetch_mta_feed, parse_board_arrivals
+from mta import fetch_mta_feeds, parse_board_arrivals
 from transit_config import SUPPORTED_STATIONS, SUPPORTED_TRAINS
 
 CONFIG_PATH = Path(__file__).with_name("config.json")
@@ -81,5 +81,7 @@ def reset_config() -> BoardConfig:
 @app.get("/api/board")
 async def get_board() -> dict:
     config = load_config()
-    feed = await fetch_mta_feed()
-    return parse_board_arrivals(feed, config.model_dump())
+    config_data = config.model_dump()
+    selected_routes = set(config_data.get("trains") or ["4", "5", "6"])
+    feeds = await fetch_mta_feeds(selected_routes)
+    return parse_board_arrivals(feeds, config_data)

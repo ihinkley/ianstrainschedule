@@ -5,11 +5,16 @@ N = northbound / uptown, S = southbound / downtown.
 """
 
 NUMBERED_FEED_URL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs"
+ACE_FEED_URL = "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace"
 
 FEEDS = {
     "numbered": {
         "url": NUMBERED_FEED_URL,
         "routes": ["1", "2", "3", "4", "5", "6", "7", "S"],
+    },
+    "ace": {
+        "url": ACE_FEED_URL,
+        "routes": ["A", "C", "E"],
     },
 }
 
@@ -22,12 +27,16 @@ SUPPORTED_TRAINS = {
     "6": {"feed": "numbered", "color": "green"},
     "7": {"feed": "numbered", "color": "purple"},
     "S": {"feed": "numbered", "color": "gray"},
+    "A": {"feed": "ace", "color": "blue"},
+    "C": {"feed": "ace", "color": "blue"},
+    "E": {"feed": "ace", "color": "blue"},
 }
 
 SUPPORTED_STATIONS = {
     "Fulton St": {
         "display_name": "FULTON ST",
         "platforms": [
+            {"label": "A/C", "routes": ["A", "C"], "stop_ids": ["A38N", "A38S"]},
             {"label": "2/3", "routes": ["2", "3"], "stop_ids": ["229N", "229S"]},
             {"label": "4/5", "routes": ["4", "5"], "stop_ids": ["418N", "418S"]},
         ],
@@ -96,6 +105,15 @@ def stop_ids_for_station(station_name: str, selected_routes: set[str]) -> list[s
             continue
         stop_ids.extend(platform["stop_ids"])
     return stop_ids
+
+
+def feed_keys_for_routes(selected_routes: set[str]) -> list[str]:
+    feed_keys = {
+        SUPPORTED_TRAINS[route]["feed"]
+        for route in selected_routes
+        if route in SUPPORTED_TRAINS
+    }
+    return sorted(feed_keys)
 
 
 def display_name_for_station(station_name: str) -> str:
