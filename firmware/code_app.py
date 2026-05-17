@@ -1,10 +1,11 @@
 # Full app entry — use this after verify mode passes.
 # To switch: copy code_app.py over code.py (or use deploy-app.sh)
 
-import display_board
 import time
 
-ACTIVE_SCENE = "live_board"  # live_board | claude_trapped | fun_subway | test_pattern | demo | solid
+import display_board
+
+ACTIVE_SCENE = "live_board"  # design_mock | live_board | claude_trapped | fun_subway | test_pattern | demo | solid
 
 board = display_board.BoardDisplay()
 last_live_data = None
@@ -23,6 +24,8 @@ if ACTIVE_SCENE == "live_board":
         except Exception:
             board.show_status("NET ERR", "RETRY", display_board.COLOR_ALERT)
             time.sleep(5)
+elif ACTIVE_SCENE == "design_mock":
+    board.show_design_mock()
 elif ACTIVE_SCENE == "demo":
     board.show_demo_arrivals()
 elif ACTIVE_SCENE == "claude_trapped":

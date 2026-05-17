@@ -28,9 +28,9 @@ export type BoardData = {
 };
 
 export const DEFAULT_CONFIG: BoardConfig = {
-  trains: ["4", "5", "6"],
-  stations: ["Fulton St", "Wall St"],
-  direction: "both",
+  trains: ["2", "3", "4", "5"],
+  stations: ["Wall St", "Fulton St"],
+  direction: "northbound",
   brightness: 25,
   mode: "arrivals",
 };

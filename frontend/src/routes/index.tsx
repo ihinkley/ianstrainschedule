@@ -33,7 +33,6 @@ function Index() {
   const [status, setStatus] = useState<Status>({ kind: "connecting" });
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [confirmingReset, setConfirmingReset] = useState(false);
   const [boardData, setBoardData] = useState(() => mockBoardData(DEFAULT_CONFIG));
   const [tick, setTick] = useState(0); // re-renders for "Xs ago"
 
@@ -106,15 +105,20 @@ function Index() {
   };
 
   const handleReset = async () => {
+    setConfig(DEFAULT_CONFIG);
+    setBoardData(mockBoardData(DEFAULT_CONFIG));
+    lastRemoteRef.current = 0;
+
     try {
       const c = await resetConfig();
       setConfig(c);
+      setBoardData(mockBoardData(c));
       setStatus({ kind: "connected", lastUpdated: Date.now() });
     } catch {
       setConfig(DEFAULT_CONFIG);
+      setBoardData(mockBoardData(DEFAULT_CONFIG));
       setStatus({ kind: "offline" });
     }
-    setConfirmingReset(false);
   };
 
   const statusText = useMemo(() => {
@@ -214,31 +218,6 @@ function Index() {
           />
         </Section>
 
-        {/* Reset confirmation */}
-        {confirmingReset && (
-          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4">
-            <p className="text-sm text-foreground">
-              Reset board to default configuration?
-            </p>
-            <p className="mt-1 font-mono text-[11px] uppercase tracking-wider text-muted-foreground">
-              4·5·6 · Fulton St · Wall St · both · 25%
-            </p>
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={handleReset}
-                className="flex-1 rounded-lg bg-destructive py-2 text-sm font-semibold text-destructive-foreground active:scale-[0.98]"
-              >
-                Confirm Reset
-              </button>
-              <button
-                onClick={() => setConfirmingReset(false)}
-                className="flex-1 rounded-lg border border-border py-2 text-sm text-muted-foreground active:scale-[0.98]"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
       </main>
 
       {/* Sticky action bar */}
@@ -253,7 +232,7 @@ function Index() {
               Refresh
             </button>
             <button
-              onClick={() => setConfirmingReset(true)}
+              onClick={handleReset}
               className="flex items-center justify-center gap-2 rounded-xl border border-destructive/40 py-2.5 text-sm font-medium text-destructive active:scale-[0.98]"
             >
               <RotateCcw className="size-4" />

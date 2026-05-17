@@ -15,16 +15,23 @@ PANEL_HEIGHT = 32
 Y_OFFSET = 4
 FONT_HEIGHT = 8
 MAX_TEXT_CHARS = 10
+FONT_WIDTH = 6
+STATIC_ARRIVAL_CHARS = 4
+STATIC_DIVIDER_GAP = 1
+SCROLL_DIVIDER_GAP = 1
+ARROW_WIDTH = 5
+ARROW_HEIGHT = 6
+ARRIVAL_ITEM_SPACING = FONT_WIDTH * 2
 # Physical matrix stays 64x32; use the full lower edge for test labels.
 MAX_Y = PANEL_HEIGHT - FONT_HEIGHT
-BRIGHTNESS = 0.25
+BRIGHTNESS = 0.30
 
 # Calibrated for Adafruit 5036 (2.5mm 64x32): A3/A4 green/blue + A2 red (RbG).
 # Corner-pixel tests (B1–B5) are not reliable on this panel; full fills are.
 MATRIX_OPTS = {
     "width": PANEL_WIDTH,
     "height": PANEL_HEIGHT,
-    "bit_depth": 2,  # lower = less flicker on ESP32-S3
+    "bit_depth": 4,  # needed for software-dimmed colors to have visible steps
     "serpentine": False,
     "rotation": 0,
     "color_order": "RbG",
@@ -34,13 +41,29 @@ MATRIX_OPTS = {
 COLOR_STATION = 0xFFFFFF
 COLOR_ARRIVAL = 0x00FF00
 COLOR_DIM = 0x444444
+COLOR_BLACK = 0x000000
 COLOR_ALERT = 0xFF3300
 COLOR_ROUTE_A = 0x2850AD
-COLOR_ROUTE_4 = 0x00933C
+COLOR_ROUTE_4 = 0x00FF66
 COLOR_ROUTE_2 = 0xEE352E
+COLOR_ROUTE_7 = 0xB933AD
+COLOR_ROUTE_S = 0x808183
+COLOR_ROUTE_B = 0xFF6319
+COLOR_ROUTE_G = 0x6CBE45
+COLOR_ROUTE_J = 0x996633
+COLOR_ROUTE_N = 0xFCCC0A
 COLOR_CYAN = 0x00FFFF
 COLOR_MAGENTA = 0xFF00FF
 COLOR_AMBER = 0xFFAA00
+
+UP_ARROW_PIXELS = (
+    (2,),
+    (1, 2, 3),
+    (0, 2, 4),
+    (2,),
+    (2,),
+    (2,),
+)
 
 # --- Demo content (replace with live MTA data later) ---
 DEMO_STATIONS = (
@@ -74,6 +97,17 @@ def _clip(text, chars=MAX_TEXT_CHARS):
     return str(text)[:chars]
 
 
+def _scale_color(color, brightness):
+    if color == COLOR_BLACK:
+        return color
+
+    brightness = max(0.0, min(brightness, 1.0))
+    red = int(((color >> 16) & 0xFF) * brightness)
+    green = int(((color >> 8) & 0xFF) * brightness)
+    blue = int((color & 0xFF) * brightness)
+    return (red << 16) | (green << 8) | blue
+
+
 def _format_arrival_row(arrivals):
     if not arrivals:
         return "NO TRAINS"
@@ -90,13 +124,62 @@ def _format_arrival_row(arrivals):
     return _clip(" ".join(parts))
 
 
+def _format_arrival_scroll(arrivals):
+    if not arrivals:
+        return "NO TRAINS"
+
+    parts = []
+    for arrival in arrivals[:5]:
+        parts.append(
+            _format_arrival(
+                arrival.get("route", "?"),
+                arrival.get("direction", "uptown"),
+                arrival.get("minutes", "?"),
+            )
+        )
+    return "  ".join(parts) + "   "
+
+
+def _arrival_parts(arrival):
+    route = _clip(arrival.get("route", "?"), 1)
+    direction = arrival.get("direction", "uptown")
+    minutes = _clip(arrival.get("minutes", "?"), 2)
+    if minutes:
+        minutes += "m"
+    return route, direction, minutes
+
+
+def _route_color(route, fallback=COLOR_ARRIVAL):
+    route = str(route).upper()
+    if route in ("1", "2", "3"):
+        return COLOR_ROUTE_2
+    if route in ("4", "5", "6"):
+        return COLOR_ROUTE_4
+    if route == "7":
+        return COLOR_ROUTE_7
+    if route == "S":
+        return COLOR_ROUTE_S
+    if route in ("A", "C", "E"):
+        return COLOR_ROUTE_A
+    if route in ("B", "D", "F", "M"):
+        return COLOR_ROUTE_B
+    if route == "G":
+        return COLOR_ROUTE_G
+    if route in ("J", "Z"):
+        return COLOR_ROUTE_J
+    if route in ("N", "Q", "R", "W"):
+        return COLOR_ROUTE_N
+    return fallback
+
+
 class BoardDisplay:
     """Owns the matrix hardware and everything drawn on it."""
 
     def __init__(self):
+        self._brightness = BRIGHTNESS
         self._matrix = Matrix(**MATRIX_OPTS)
         self.display = self._matrix.display
-        self.display.brightness = BRIGHTNESS
+        self.display.brightness = 1.0
         self._root = displayio.Group()
         self.display.root_group = self._root
         self._labels = []
@@ -107,22 +190,37 @@ class BoardDisplay:
         self._blink_label = None
         self._scroll_group = None
         self._scroll_width = 0
+        self._arrival_scrolls = []
+
+    def _set_brightness(self, brightness):
+        self._brightness = max(0.0, min(brightness, 1.0))
+        # RGBMatrix partial brightness is not reliable, so keep hardware at
+        # full output and dim by drawing lower RGB values instead.
+        self.display.brightness = 1.0
+
+    def _color(self, color):
+        return _scale_color(color, self._brightness)
 
     def clear(self):
         self._root = displayio.Group()
         self.display.root_group = self._root
         self._labels = []
+        self._arrival_scrolls = []
 
-    def _add_label(self, text, x, y, color):
+    def _add_label(self, text, x, y, color, parent=None):
         y = max(0, min(y, MAX_Y))
+        width = len(text) * FONT_WIDTH
         label = bitmap_label.Label(
             terminalio.FONT,
             text=text,
-            color=color,
+            color=self._color(color),
             x=x,
             y=y + Y_OFFSET,
         )
-        self._root.append(label)
+        if parent is not None:
+            parent.append(label)
+        else:
+            self._root.append(label)
         self._labels.append(label)
         return label
 
@@ -130,13 +228,130 @@ class BoardDisplay:
         label = bitmap_label.Label(
             terminalio.FONT,
             text=text,
-            color=color,
+            color=self._color(color),
             x=x,
             y=14 + Y_OFFSET,
         )
         self._scroll_group.append(label)
         self._labels.append(label)
         return label
+
+    def _add_rect(self, x, y, width, height, color, parent=None):
+        palette = displayio.Palette(1)
+        palette[0] = self._color(color)
+        bitmap = displayio.Bitmap(width, height, 1)
+        tile = displayio.TileGrid(bitmap, pixel_shader=palette, x=x, y=y)
+        if parent is not None:
+            parent.append(tile)
+        else:
+            self._root.append(tile)
+        return tile
+
+    def _add_arrow(self, x, y, direction, color, parent=None):
+        palette = displayio.Palette(2)
+        palette[0] = COLOR_BLACK
+        palette[1] = self._color(color)
+        palette.make_transparent(0)
+        bitmap = displayio.Bitmap(ARROW_WIDTH, ARROW_HEIGHT, 2)
+        rows = UP_ARROW_PIXELS
+        if direction not in ("up", "uptown"):
+            rows = tuple(reversed(UP_ARROW_PIXELS))
+        for row_y, row_pixels in enumerate(rows):
+            for row_x in row_pixels:
+                bitmap[row_x, row_y] = 1
+        row_top = y + Y_OFFSET - 4
+        tile = displayio.TileGrid(
+            bitmap,
+            pixel_shader=palette,
+            x=x,
+            y=row_top + 1,
+        )
+        if parent is not None:
+            parent.append(tile)
+        else:
+            self._root.append(tile)
+        return tile
+
+    def _add_arrival_item(self, arrival, x, y, color, parent=None):
+        route, direction, minutes = _arrival_parts(arrival)
+        route_color = _route_color(route, fallback=color)
+        self._add_label(route, x, y, route_color, parent=parent)
+        arrow_x = x + (len(route) * FONT_WIDTH)
+        self._add_arrow(arrow_x, y, direction, route_color, parent=parent)
+        minutes_x = arrow_x + ARROW_WIDTH
+        self._add_label(minutes, minutes_x, y, COLOR_STATION, parent=parent)
+        return (len(route) * FONT_WIDTH) + ARROW_WIDTH + (len(minutes) * FONT_WIDTH)
+
+    def _add_arrival_scroll(self, text, x, y, color, speed=1):
+        width = len(text) * FONT_WIDTH
+        loop_width = width + (FONT_WIDTH * 3)
+        group = displayio.Group(x=x, y=0)
+        self._root.append(group)
+        label = bitmap_label.Label(
+            terminalio.FONT,
+            text=text,
+            color=self._color(color),
+            x=0,
+            y=y + Y_OFFSET,
+        )
+        group.append(label)
+        self._labels.append(label)
+        repeat_label = bitmap_label.Label(
+            terminalio.FONT,
+            text=text,
+            color=self._color(color),
+            x=loop_width,
+            y=y + Y_OFFSET,
+        )
+        group.append(repeat_label)
+        self._labels.append(repeat_label)
+        self._arrival_scrolls.append(
+            {
+                "group": group,
+                "base_x": x,
+                "width": loop_width,
+                "speed": speed,
+            }
+        )
+        return label
+
+    def _add_arrival_scroll_items(self, arrivals, x, y, color, speed=1):
+        if not arrivals:
+            return
+
+        group = displayio.Group(x=x, y=0)
+        self._root.append(group)
+
+        cursor_x = 0
+        for arrival in arrivals:
+            cursor_x += self._add_arrival_item(arrival, cursor_x, y, color, parent=group)
+            cursor_x += ARRIVAL_ITEM_SPACING
+
+        loop_width = cursor_x + ARRIVAL_ITEM_SPACING
+        cursor_x = loop_width
+        for arrival in arrivals:
+            cursor_x += self._add_arrival_item(arrival, cursor_x, y, color, parent=group)
+            cursor_x += ARRIVAL_ITEM_SPACING
+
+        self._arrival_scrolls.append(
+            {
+                "group": group,
+                "base_x": x,
+                "width": loop_width,
+                "speed": speed,
+            }
+        )
+
+    def _add_designed_arrival_row(self, arrivals, y, color):
+        static_width = self._add_arrival_item(arrivals[0], 0, y, color)
+        divider_x = static_width + STATIC_DIVIDER_GAP
+        scroll_x = divider_x + SCROLL_DIVIDER_GAP
+
+        # Draw scrolling text first, then mask the static area before drawing
+        # the pinned first train and divider on top.
+        self._add_arrival_scroll_items(arrivals[1:], scroll_x, y, color, speed=1)
+        self._add_rect(0, y + Y_OFFSET - 4, scroll_x, FONT_HEIGHT, COLOR_BLACK)
+        self._add_arrival_item(arrivals[0], 0, y, color)
 
     def show_demo_arrivals(self, stations=DEMO_STATIONS):
         """Two-station layout — kept within 32px height."""
@@ -160,7 +375,7 @@ class BoardDisplay:
         self.clear()
         self._mode = "live_board"
         brightness = data.get("brightness", 25)
-        self.display.brightness = max(0.05, min(brightness / 100, 1.0))
+        self._set_brightness(max(0.05, min(brightness / 100, 1.0)))
 
         if data.get("mode") == "off":
             return
@@ -180,10 +395,43 @@ class BoardDisplay:
 
             arrivals = station.get("arrivals", [])
             if arrivals:
-                self._add_label(_format_arrival_row(arrivals), 0, y, COLOR_ARRIVAL)
+                self._add_designed_arrival_row(arrivals[:5], y, COLOR_ARRIVAL)
             else:
                 self._add_label("NO TRAINS", 0, y, COLOR_DIM)
             y += 8
+
+    def show_design_mock(self):
+        """Static fake data for tuning the physical board UI."""
+        self.clear()
+        self._mode = "design_mock"
+        self._anim_frame = 0
+        self._last_tick = time.monotonic()
+        self._set_brightness(BRIGHTNESS)
+
+        self._add_label("FULTON ST", 0, 0, COLOR_STATION)
+        self._add_designed_arrival_row(
+            [
+                {"route": "8", "direction": "uptown", "minutes": 2},
+                {"route": "9", "direction": "downtown", "minutes": 7},
+                {"route": "8", "direction": "uptown", "minutes": 12},
+                {"route": "9", "direction": "uptown", "minutes": 18},
+                {"route": "8", "direction": "downtown", "minutes": 24},
+            ],
+            8,
+            COLOR_ARRIVAL,
+        )
+        self._add_label("WALL ST", 0, 16, COLOR_STATION)
+        self._add_designed_arrival_row(
+            [
+                {"route": "9", "direction": "uptown", "minutes": 4},
+                {"route": "8", "direction": "downtown", "minutes": 11},
+                {"route": "9", "direction": "downtown", "minutes": 16},
+                {"route": "8", "direction": "uptown", "minutes": 21},
+                {"route": "9", "direction": "uptown", "minutes": 29},
+            ],
+            24,
+            COLOR_AMBER,
+        )
 
     def show_status(self, line1, line2="", color=COLOR_DIM):
         self.clear()
@@ -196,7 +444,7 @@ class BoardDisplay:
         """Full-panel color — useful for testing wiring and scan settings."""
         self.clear()
         palette = displayio.Palette(1)
-        palette[0] = color
+        palette[0] = self._color(color)
         bitmap = displayio.Bitmap(PANEL_WIDTH, PANEL_HEIGHT, 1)
         for x in range(PANEL_WIDTH):
             for y in range(PANEL_HEIGHT):
@@ -268,6 +516,20 @@ class BoardDisplay:
                     self._anim_frame = 0
                     next_x = PANEL_WIDTH
                 self._scroll_group.x = next_x
+            return
+
+        if self._mode in ("design_mock", "live_board"):
+            now = time.monotonic()
+            if now - self._last_tick < 0.12:
+                return
+
+            self._last_tick = now
+            self._anim_frame += 1
+
+            for scroll in self._arrival_scrolls:
+                width = scroll["width"]
+                offset = (self._anim_frame * scroll["speed"]) % width
+                scroll["group"].x = scroll["base_x"] - offset
             return
 
         if self._mode != "fun_subway":

@@ -10,6 +10,29 @@ import wifi
 DEFAULT_POLL_SECONDS = 10
 
 
+def _arrival_signature(arrival):
+    return (
+        arrival.get("route"),
+        arrival.get("direction"),
+        arrival.get("minutes"),
+    )
+
+
+def _station_signature(station):
+    return (
+        station.get("name"),
+        tuple(_arrival_signature(arrival) for arrival in station.get("arrivals", [])),
+    )
+
+
+def _board_signature(data):
+    return (
+        data.get("brightness"),
+        data.get("mode"),
+        tuple(_station_signature(station) for station in data.get("stations", [])),
+    )
+
+
 class BoardApiClient:
     def __init__(self):
         self.api_url = os.getenv("BOARD_API_URL")
@@ -18,6 +41,7 @@ class BoardApiClient:
         self._requests = None
         self._last_poll = 0
         self._last_data = None
+        self._last_signature = None
 
     def connect(self):
         ssid = os.getenv("CIRCUITPY_WIFI_SSID")
@@ -45,8 +69,13 @@ class BoardApiClient:
         try:
             response = self._requests.get(self.api_url)
             data = response.json()
-            self._last_data = data
+            signature = _board_signature(data)
             self._last_poll = now
+            if self._last_data is not None and signature == self._last_signature:
+                return self._last_data
+
+            self._last_data = data
+            self._last_signature = signature
             return data
         finally:
             if response:

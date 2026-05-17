@@ -24,8 +24,8 @@ export async function saveConfig(config: BoardConfig): Promise<void> {
 }
 
 export async function resetConfig(): Promise<BoardConfig> {
-  await safeFetch<unknown>("/api/reset", { method: "POST" });
-  return getConfig().catch(() => DEFAULT_CONFIG);
+  await saveConfig(DEFAULT_CONFIG);
+  return DEFAULT_CONFIG;
 }
 
 export async function getBoard(): Promise<BoardData> {
