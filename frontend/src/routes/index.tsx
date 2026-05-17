@@ -14,9 +14,9 @@ import { BoardPreview } from "@/components/BoardPreview";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Subway Board — Control Panel" },
+      { title: "Ian's Subway Board — Control Panel" },
       { name: "description", content: "Mobile control panel for a WiFi-connected NYC subway LED arrival board." },
-      { property: "og:title", content: "Subway Board — Control Panel" },
+      { property: "og:title", content: "Ian's Subway Board — Control Panel" },
       { property: "og:description", content: "Mobile control panel for a WiFi-connected NYC subway LED arrival board." },
     ],
   }),
@@ -148,7 +148,7 @@ function Index() {
             </div>
             <div>
               <h1 className="text-base font-bold leading-tight tracking-tight text-foreground">
-                Subway <span className="text-primary text-glow-cyan">Board</span>
+                Ian&apos;s Subway Board
               </h1>
               <div className="mt-0.5 flex items-center gap-1.5">
                 <span

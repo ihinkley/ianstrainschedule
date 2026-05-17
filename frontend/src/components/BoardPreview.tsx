@@ -13,7 +13,7 @@ export function BoardPreview({ data }: Props) {
     return () => clearInterval(id);
   }, []);
 
-  const dim = Math.max(0.25, data.brightness / 100);
+  const dim = Math.max(0.9, data.brightness / 100);
 
   if (data.mode === "off") {
     return (
